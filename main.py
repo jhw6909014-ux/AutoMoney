@@ -13,7 +13,7 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 BLOGGER_EMAIL = os.environ.get("BLOGGER_EMAIL")
 
-# ================= 2. 設定 AI (自動偵測) =================
+# ================= 2. 設定 AI =================
 genai.configure(api_key=GOOGLE_API_KEY)
 
 def get_valid_model():
@@ -29,31 +29,56 @@ def get_valid_model():
 model = get_valid_model()
 RSS_URL = "https://www.theverge.com/rss/index.xml"
 
-# ================= 3. 高質感圖片生成 (關鍵修改) =================
+# ================= 3. AI 導演生圖功能 (最核心的優化) =================
 
-def get_tech_image(title):
+def get_smart_image(title):
     """
-    不抓醜圖了，直接用 AI 生成「高科技風格」的桌布級圖片。
-    加上 keywords 讓圖片變成 3D 渲染風格，避免奇怪的拼貼。
+    不使用固定關鍵字。
+    改為請 AI 根據標題，想像一個具體的畫面，再生成圖片。
+    這樣圖片就會跟文章內容 100% 貼合。
     """
-    # 這裡我們加上「魔法咒語」，強迫 AI 畫出好看的圖
-    magic_prompt = f"{title}, futuristic technology, cinematic lighting, unreal engine 5 render, 8k resolution, hyperrealistic, cyberpunk style"
+    if not model: return ""
     
-    # 轉成網址格式
-    safe_prompt = urllib.parse.quote(magic_prompt)
+    print(f"🎨 AI 正在構思圖片畫面：{title}...")
     
-    # 加入隨機數 seed，確保每次圖片都不一樣
-    seed = int(time.time())
+    # 1. 請 AI 寫出圖片的英文描述 (Prompt)
+    prompt_for_ai = f"""
+    You are an AI Art Director. 
+    Create a highly detailed, photorealistic image prompt for the following news title: "{title}".
     
-    img_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=600&nologo=true&seed={seed}&model=flux"
+    Requirements:
+    1. Describe the main subject clearly (e.g., if it's a phone, describe the phone; if it's a movie company, describe a movie set or cinema).
+    2. Add style keywords: "Cinematic lighting, 8k resolution, photorealistic, depth of field".
+    3. Keep it under 30 words.
+    4. ONLY output the prompt text in English. No other words.
+    """
     
-    return f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_url}" style="width:100%; max-width:800px; border-radius:12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);"></div>'
+    try:
+        # 取得 AI 建議的畫圖指令
+        image_prompt = model.generate_content(prompt_for_ai).text.strip()
+        print(f"🖌️ AI 決定畫：{image_prompt}")
+        
+        # 轉成網址格式
+        safe_prompt = urllib.parse.quote(image_prompt)
+        seed = int(time.time())
+        
+        # 使用 Pollinations 生成 (加上 flux 模型讓畫質更好)
+        img_url = f"https://image.pollinations.ai/prompt/{safe_prompt}?width=1024&height=600&nologo=true&seed={seed}&model=flux"
+        
+        return f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_url}" style="width:100%; max-width:800px; border-radius:12px; box-shadow: 0 4px 15px rgba(0,0,0,0.2);"></div>'
+    
+    except Exception as e:
+        print(f"⚠️ 生圖失敗，使用備案: {e}")
+        # 如果失敗，回退到原本的簡單模式
+        safe_title = urllib.parse.quote(title + " technology")
+        img_url = f"https://image.pollinations.ai/prompt/{safe_title}?width=1024&height=600&nologo=true"
+        return f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_url}" style="width:100%; max-width:800px; border-radius:12px;"></div>'
 
 # ================= 4. 寫作與寄信 =================
 
 def ai_write_body(title, summary, link):
     if not model: return None
-    print(f"🤖 AI 正在撰寫：{title}...")
+    print(f"🤖 AI 正在撰寫內文：{title}...")
     
     prompt = f"""
     請將以下科技新聞改寫成一篇繁體中文部落格文章的「內文」。
@@ -62,17 +87,15 @@ def ai_write_body(title, summary, link):
     【摘要】{summary}
     
     【要求】
-    1. 不用給標題（我會自己加）。
-    2. 不用給圖片（我會自己加）。
-    3. 內容要分成三個段落，語氣要像「科技媒體總編輯」那樣專業。
-    4. 文末按鈕：<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#d93025;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;font-weight:bold;">👉 閱讀完整報導</a></div>
-    5. 只回傳 HTML。
+    1. 標題與圖片我都有了，你只要寫內文。
+    2. 內容分成三段，專業且流暢。
+    3. 文末按鈕：<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#d93025;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;font-weight:bold;">👉 閱讀完整報導</a></div>
+    4. 只回傳 HTML。
     """
     try:
         response = model.generate_content(prompt)
         return response.text.replace("```html", "").replace("```", "").strip()
-    except Exception as e:
-        print(f"❌ 生成失敗: {e}")
+    except:
         return None
 
 def send_email(subject, body_html):
@@ -93,24 +116,23 @@ def send_email(subject, body_html):
 
 # ================= 5. 主程式 =================
 if __name__ == "__main__":
-    print(">>> 系統啟動 (高質感濾鏡版)...")
+    print(">>> 系統啟動 (AI 導演版)...")
     
     if not GMAIL_APP_PASSWORD or not model:
-        print("❌ 設定錯誤")
         exit(1)
 
     feed = feedparser.parse(RSS_URL)
     if feed.entries:
-        # 為了測試，我們換一篇抓 (抓第3篇，避免重複)
-        # 實際上線會自動抓最新的
-        entry = feed.entries[2] if len(feed.entries) > 2 else feed.entries[0]
+        # 為了測試，我們換一篇抓 (避免重複)
+        # 上線時它會自動抓最新的
+        entry = feed.entries[3] if len(feed.entries) > 3 else feed.entries[0]
         
         print(f"📄 處理新聞：{entry.title}")
         
-        # 1. 生成高質感圖片
-        image_html = get_tech_image(entry.title)
+        # 1. 讓 AI 決定畫什麼 (Smart Image)
+        image_html = get_smart_image(entry.title)
         
-        # 2. AI 寫文章
+        # 2. 寫文章
         text_html = ai_write_body(entry.title, getattr(entry, 'summary', ''), entry.link)
         
         if text_html:
