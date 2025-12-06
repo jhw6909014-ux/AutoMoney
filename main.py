@@ -1,11 +1,11 @@
 import os
 import smtplib
 import feedparser
-import time
-import urllib.parse # 新增這個工具來處理網址
+import urllib.parse
 import google.generativeai as genai
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from datetime import datetime
 
 # ================= 1. 讀取密碼 =================
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
@@ -13,16 +13,15 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 BLOGGER_EMAIL = os.environ.get("BLOGGER_EMAIL")
 
-# ================= 2. 自動偵測可用模型 =================
+# ================= 2. 設定 AI =================
 genai.configure(api_key=GOOGLE_API_KEY)
 
 def get_valid_model():
+    """自動偵測可用模型"""
     try:
-        print("🔍 正在偵測您的 API Key 可用的模型...")
         for m in genai.list_models():
             if 'generateContent' in m.supported_generation_methods:
                 if 'gemini' in m.name:
-                    print(f"✅ 找到可用模型：{m.name}")
                     return genai.GenerativeModel(m.name)
         return None
     except:
@@ -31,23 +30,51 @@ def get_valid_model():
 model = get_valid_model()
 RSS_URL = "https://www.theverge.com/rss/index.xml"
 
-# ================= 3. 強制配圖功能 =================
+# ================= 3. 抓取真實圖片 (核心修正) =================
 
-def get_image_tag(title):
+def get_real_image(entry):
     """
-    這是一個強制產生圖片的功能。
-    它會把英文標題轉成圖片網址，確保圖片一定會出現。
+    優先抓取 RSS 裡的真實新聞圖片。
+    如果抓不到，才用 AI 生成一張「科技感」圖片當備用。
     """
-    # 把標題轉成網址安全格式
-    safe_title = urllib.parse.quote(title) 
-    img_url = f"https://image.pollinations.ai/prompt/{safe_title}?width=1024&height=512&nologo=true&seed={int(time.time())}"
+    img_url = None
     
-    # 回傳 HTML 圖片語法
+    # 方法 A: 檢查 media_content (大部分科技網站用這個)
+    if 'media_content' in entry:
+        try:
+            img_url = entry.media_content[0]['url']
+        except:
+            pass
+            
+    # 方法 B: 檢查 links 裡的圖片連結
+    if not img_url and 'links' in entry:
+        for link in entry.links:
+            if 'image' in link.type:
+                img_url = link.href
+                break
+                
+    # 方法 C: 檢查 enclosures (有些網站用這個)
+    if not img_url and 'enclosures' in entry:
+         try:
+            img_url = entry.enclosures[0]['url']
+         except:
+            pass
+
+    # 如果真的抓不到原圖，用 AI 生成，但加上 "tech concept" 避免畫成動物
+    if not img_url:
+        print("⚠️ 抓不到原圖，使用 AI 生成備用圖")
+        safe_title = urllib.parse.quote(entry.title + " futuristic technology concept art") 
+        img_url = f"https://image.pollinations.ai/prompt/{safe_title}?width=1024&height=600&nologo=true"
+    else:
+        print(f"🖼️ 成功抓取原圖：{img_url}")
+
     return f'<div style="text-align:center; margin-bottom:20px;"><img src="{img_url}" style="width:100%; max-width:800px; border-radius:12px; box-shadow: 0 4px 8px rgba(0,0,0,0.1);"></div>'
+
+# ================= 4. 寫作與寄信 =================
 
 def ai_write_body(title, summary, link):
     if not model: return None
-    print(f"🤖 AI 正在撰寫內文：{title}...")
+    print(f"🤖 AI 正在撰寫：{title}...")
     
     prompt = f"""
     請將以下科技新聞改寫成一篇繁體中文部落格文章的「內文」。
@@ -56,11 +83,11 @@ def ai_write_body(title, summary, link):
     【摘要】{summary}
     
     【要求】
-    1. 不用給標題（標題我會自己加）。
-    2. 不用給圖片（圖片我會自己加）。
-    3. 內容要分成三個段落，加入優缺點分析。
-    4. 文末加入按鈕：<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#d93025;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;">👉 閱讀完整內容</a></div>
-    5. 只回傳 HTML 代碼。
+    1. 不用給標題（我已經有了）。
+    2. 不用給圖片（我已經有了）。
+    3. 內容要分成三個段落，語氣專業且吸引人。
+    4. 文末按鈕：<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#d93025;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;">👉 閱讀完整報導</a></div>
+    5. 只回傳 HTML。
     """
     try:
         response = model.generate_content(prompt)
@@ -85,29 +112,28 @@ def send_email(subject, body_html):
     except Exception as e:
         print(f"❌ 寄信失敗: {e}")
 
-# ================= 4. 主程式 =================
+# ================= 5. 主程式 =================
 if __name__ == "__main__":
-    print(">>> 系統啟動 (強制配圖版)...")
+    print(">>> 系統啟動 (抓取原圖版)...")
     
     if not GMAIL_APP_PASSWORD or not model:
-        print("❌ 設定錯誤，請檢查 Secret")
+        print("❌ 設定錯誤")
         exit(1)
 
     feed = feedparser.parse(RSS_URL)
     if feed.entries:
-        # 為了測試，我們這次抓第 2 篇新聞 (避免跟剛剛重複)
-        entry = feed.entries[1] if len(feed.entries) > 1 else feed.entries[0]
-        
+        # 測試用：抓第一篇
+        entry = feed.entries[0]
         print(f"📄 處理新聞：{entry.title}")
         
-        # 1. 程式自己產生圖片 (不靠 AI)
-        image_html = get_image_tag(entry.title)
+        # 1. 抓真正的圖片
+        image_html = get_real_image(entry)
         
-        # 2. AI 只要寫字就好
+        # 2. AI 寫文章
         text_html = ai_write_body(entry.title, getattr(entry, 'summary', ''), entry.link)
         
         if text_html:
-            # 3. 把圖片黏在最上面
+            # 3. 組合
             final_html = image_html + text_html
             send_email(entry.title, final_html)
     else:
