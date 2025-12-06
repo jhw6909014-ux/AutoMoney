@@ -1,7 +1,6 @@
 import os
 import smtplib
 import feedparser
-import time
 import google.generativeai as genai
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -12,62 +11,50 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 BLOGGER_EMAIL = os.environ.get("BLOGGER_EMAIL")
 
-# ================= 2. 設定 AI (萬能鑰匙邏輯) =================
+# ================= 2. 自動偵測可用模型 (資深修復) =================
 genai.configure(api_key=GOOGLE_API_KEY)
 
-def get_ai_response(prompt):
-    """
-    自動嘗試多種模型，直到成功為止。
-    這就像有三把鑰匙，第一把打不開就換第二把。
-    """
-    # 這是目前 Google 所有的免費模型清單，我們會一個一個試
-    model_list = [
-        "gemini-1.5-flash",          # 最新、最快 (首選)
-        "gemini-1.5-flash-latest",   # 最新版的變體
-        "gemini-1.0-pro",            # 舊版穩定款
-        "gemini-pro"                 # 最舊版 (備用)
-    ]
+def get_valid_model():
+    """直接問 Google 這把鑰匙能用誰，不再瞎猜"""
+    try:
+        print("🔍 正在偵測您的 API Key 可用的模型...")
+        for m in genai.list_models():
+            if 'generateContent' in m.supported_generation_methods:
+                if 'gemini' in m.name:
+                    print(f"✅ 找到可用模型：{m.name}")
+                    return genai.GenerativeModel(m.name)
+        print("❌ 您的 API Key 沒有任何 Gemini 權限，請重新申請！")
+        return None
+    except Exception as e:
+        print(f"❌ API 連線失敗: {e}")
+        return None
 
-    for model_name in model_list:
-        try:
-            print(f"🔄 正在嘗試使用模型：{model_name} ...")
-            model = genai.GenerativeModel(model_name)
-            response = model.generate_content(prompt)
-            # 確保有內容回傳
-            if response.text:
-                print(f"✅ 成功！由 {model_name} 完成寫作。")
-                return response.text.replace("```html", "").replace("```", "").strip()
-        except Exception as e:
-            print(f"⚠️ {model_name} 失敗，嘗試下一個... (錯誤: {str(e)[:50]}...)")
-            time.sleep(1) # 休息一下再試
-            continue
-    
-    return None # 如果全部都失敗
-
+# 初始化模型 (自動抓取)
+model = get_valid_model()
 RSS_URL = "https://www.theverge.com/rss/index.xml"
 
-# ================= 3. 功能區 =================
+# ================= 3. 寫作與寄信功能 =================
 
 def ai_write_article(title, summary, link):
-    print(f"🤖 AI 正在準備撰寫：{title}...")
+    if not model: return None
+    print(f"🤖 AI 正在撰寫：{title}...")
     
     prompt = f"""
     請將以下科技新聞改寫成一篇繁體中文部落格文章 (HTML 格式)。
-    
     【標題】{title}
     【摘要】{summary}
-    
     【要求】
-    1. 標題使用 <h2> 標籤。
-    2. 第一段後插入圖片：
-       <br><div style="text-align:center;"><img src="https://image.pollinations.ai/prompt/{title.replace(' ', '%20')}?nologo=true" style="width:100%; max-width:600px; border-radius:10px;"></div><br>
-    3. 加入優缺點分析。
-    4. 文末加入按鈕：
-       <br><div style="text-align:center; margin:30px 0;"><a href="{link}" style="background-color:#d93025; color:white; padding:15px 30px; text-decoration:none; border-radius:5px; font-weight:bold;">👉 點此閱讀完整報導</a></div>
-    5. 只回傳 HTML 代碼。
+    1. 標題用 <h2>。
+    2. 插入圖片：<br><div style="text-align:center;"><img src="https://image.pollinations.ai/prompt/{title.replace(' ', '%20')}?nologo=true" style="width:100%;max-width:600px;border-radius:10px;"></div><br>
+    3. 文末按鈕：<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#d93025;color:white;padding:15px 30px;text-decoration:none;border-radius:5px;">👉 閱讀完整內容</a></div>
+    4. 只給 HTML。
     """
-    
-    return get_ai_response(prompt)
+    try:
+        response = model.generate_content(prompt)
+        return response.text.replace("```html", "").replace("```", "").strip()
+    except Exception as e:
+        print(f"❌ 生成失敗: {e}")
+        return None
 
 def send_email(subject, body):
     msg = MIMEMultipart()
@@ -81,32 +68,27 @@ def send_email(subject, body):
         server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print(f"✅ 信件已成功寄出！標題：{subject}")
+        print(f"✅ 信件已寄出！")
     except Exception as e:
-        print(f"❌ 寄信失敗 (請檢查 Gmail 密碼): {e}")
+        print(f"❌ 寄信失敗: {e}")
 
 # ================= 4. 主程式 =================
 if __name__ == "__main__":
-    print(">>> 系統啟動 (萬能鑰匙版)...")
+    print(">>> 系統啟動 (自動偵測版)...")
     
     if not GMAIL_APP_PASSWORD:
-        print("❌ 錯誤：找不到環境變數")
+        print("❌ 錯誤：找不到密碼")
+        exit(1)
+        
+    if not model:
+        print("❌ 致命錯誤：AI 模型初始化失敗，請檢查 API Key。")
         exit(1)
 
-    try:
-        feed = feedparser.parse(RSS_URL)
-        if feed.entries:
-            entry = feed.entries[0] # 抓最新一篇
-            print(f"📄 發現新聞：{entry.title}")
-            
-            html_content = ai_write_article(entry.title, getattr(entry, 'summary', ''), entry.link)
-            
-            if html_content:
-                send_email(entry.title, html_content)
-            else:
-                print("❌ 所有 AI 模型都嘗試失敗，請檢查 API Key 是否正確或額度是否用完。")
-        else:
-            print("📭 RSS 沒有新文章")
-            
-    except Exception as e:
-        print(f"❌ 系統執行錯誤: {e}")
+    feed = feedparser.parse(RSS_URL)
+    if feed.entries:
+        entry = feed.entries[0]
+        html = ai_write_article(entry.title, getattr(entry, 'summary', ''), entry.link)
+        if html:
+            send_email(entry.title, html)
+    else:
+        print("📭 無新文章")
