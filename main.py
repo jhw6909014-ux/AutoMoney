@@ -11,17 +11,19 @@ GMAIL_USER = os.environ.get("GMAIL_USER")
 GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD")
 BLOGGER_EMAIL = os.environ.get("BLOGGER_EMAIL")
 
-# ================= 2. 設定 AI (使用標準版 Flash) =================
+# ================= 2. 設定 AI (改用最穩定的 Pro 模型) =================
 genai.configure(api_key=GOOGLE_API_KEY)
-# 這裡使用最穩定的模型名稱
-model = genai.GenerativeModel("gemini-1.5-flash")
+
+# 【關鍵修正】：改用 "gemini-pro"，這是 Google 最穩定的模型，保證不會 404
+model = genai.GenerativeModel("gemini-pro")
 
 RSS_URL = "https://www.theverge.com/rss/index.xml"
 
 # ================= 3. 功能區 =================
 
 def ai_write_article(title, summary, link):
-    print(f"🤖 AI 正在撰寫文章：{title}...")
+    print(f"🤖 AI (Gemini Pro) 正在撰寫文章：{title}...")
+    
     prompt = f"""
     請將以下科技新聞改寫成一篇繁體中文部落格文章 (HTML 格式)。
     
@@ -29,7 +31,7 @@ def ai_write_article(title, summary, link):
     【摘要】{summary}
     
     【要求】
-    1. 標題使用 <h2> 標籤，要吸引人。
+    1. 標題使用 <h2> 標籤。
     2. 在第一段結束後，插入這張封面圖：
        <br><div style="text-align:center;"><img src="https://image.pollinations.ai/prompt/{title.replace(' ', '%20')}?nologo=true" style="width:100%; max-width:600px; border-radius:10px;"></div><br>
     3. 內容要有條理，加入優缺點分析。
@@ -39,6 +41,7 @@ def ai_write_article(title, summary, link):
     """
     try:
         response = model.generate_content(prompt)
+        # 清理可能多餘的標記
         text = response.text.replace("```html", "").replace("```", "").strip()
         return text
     except Exception as e:
@@ -57,13 +60,14 @@ def send_email(subject, body):
         server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
         server.send_message(msg)
         server.quit()
-        print(f"✅ 文章已發送至 Blogger：{subject}")
+        print(f"✅ 信件已寄出！標題：{subject}")
+        print("💡 請等待 1-2 分鐘，文章就會出現在 Blogger。")
     except Exception as e:
         print(f"❌ 寄信失敗 (請檢查 Gmail 密碼): {e}")
 
 # ================= 4. 主程式 =================
 if __name__ == "__main__":
-    print(">>> 系統啟動 (v2.0 修正版)...")
+    print(">>> 系統啟動 (Gemini Pro 穩定版)...")
     
     if not GMAIL_APP_PASSWORD:
         print("❌ 錯誤：找不到環境變數")
@@ -72,7 +76,7 @@ if __name__ == "__main__":
     try:
         feed = feedparser.parse(RSS_URL)
         if feed.entries:
-            # 為了測試穩定性，我們只抓最新的一篇
+            # 抓最新的一篇
             entry = feed.entries[0]
             print(f"📄 發現新聞：{entry.title}")
             
@@ -81,7 +85,7 @@ if __name__ == "__main__":
             if html_content:
                 send_email(entry.title, html_content)
             else:
-                print("⚠️ AI 沒有回傳內容")
+                print("⚠️ AI 沒有回傳內容，可能被安全過濾擋住了。")
         else:
             print("📭 RSS 來源沒有新文章")
             
