@@ -2,8 +2,8 @@ name: Auto Money Bot
 
 on:
   schedule:
-    - cron: '0 */2 * * *' # 設定每 2 小時自動執行一次
-  workflow_dispatch:      # 讓我們可以手動按按鈕測試
+    - cron: '0 */2 * * *' # 每 2 小時一次
+  workflow_dispatch:      # 手動測試按鈕
 
 jobs:
   build:
@@ -13,15 +13,17 @@ jobs:
     - name: 下載程式碼
       uses: actions/checkout@v3
 
-    - name: 設定 Python 環境
+    - name: 設定 Python 環境 (升級到 3.10)
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
+        python-version: '3.10' 
 
-    - name: 安裝必要的套件
-      run: pip install feedparser google-generativeai
+    - name: 更新並安裝套件
+      run: |
+        pip install --upgrade pip
+        pip install --upgrade feedparser google-generativeai
 
-    - name: 啟動機器人 (讀取密碼並執行)
+    - name: 啟動機器人
       env:
         GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
         GMAIL_USER: ${{ secrets.GMAIL_USER }}
