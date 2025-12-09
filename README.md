@@ -1,2 +1,1 @@
-# AutoMoney V15
-Strategy: Plain Text Execution.
+# V16 Debug Mode
