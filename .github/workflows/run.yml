@@ -1,7 +1,7 @@
 name: AutoMoney
 on:
   schedule:
-    - cron: '47 */4 * * *'
+    - cron: '50 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -21,10 +21,10 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python bot_code.txt
         
-      # V23 FIX: Direct Commit & Push (NO PULL to avoid conflict)
+      # V23 FORCE SAVE LOGIC
       - run: |
-          git config --global user.name "V23 Bot"
-          git config --global user.email "bot@v23"
+          git config --global user.name "V26 Bot"
+          git config --global user.email "bot@v26"
           git add history.txt
           git commit -m "Log Update" || echo "No changes"
-          git push origin main
+          git push
