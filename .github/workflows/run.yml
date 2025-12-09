@@ -1,29 +1,30 @@
 name: AutoMoney
 on:
   schedule:
-    - cron: '31 */4 * * *'
+    - cron: '47 */4 * * *'
   workflow_dispatch:
 
 jobs:
   bot:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v3
       - uses: actions/setup-python@v4
-        with: { python-version: '3.9' }
-      - run: pip install feedparser google-generativeai
+        with: { python-version: '3.11' }
+      - run: pip install -U feedparser google-generativeai
       
-      # V15 Text Strategy: Run the text file directly
       - env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
         run: python bot_code.txt
         
+      # V23 FIX: Direct Commit & Push (NO PULL to avoid conflict)
       - run: |
-          git config --global user.name "V15 Bot"
-          git config --global user.email "bot@v15"
-          git pull --rebase
+          git config --global user.name "V23 Bot"
+          git config --global user.email "bot@v23"
           git add history.txt
-          git commit -m "Log" || echo "No changes"
-          git push
+          git commit -m "Log Update" || echo "No changes"
+          git push origin main
