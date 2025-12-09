@@ -1,2 +1,2 @@
-# AutoMoney V17
-Fix: Library Updated & Python 3.10.
+# V19 Fusion
+Keywords: 26
