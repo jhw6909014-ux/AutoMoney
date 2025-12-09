@@ -8,7 +8,7 @@ from email.mime.multipart import MIMEMultipart
 # [CONFIG]
 RSS_KEYWORD = "smartphone review OR AI news OR apple rumors"
 BLOGGER_EMAIL = "jhw6909014.money2025@blogger.com"
-AFFILIATE_MAP = {"default":"https://s.shopee.tw/4q8RoXHOja","apple":"https://s.shopee.tw/1qUqF3scBf","iphone":"https://s.shopee.tw/1qUqF3scBf","android":"https://s.shopee.tw/4Asl1N0Vya","samsung":"https://s.shopee.tw/4Asl1N0Vya","laptop":"laptop, asus, msi, acer, hp","asus":"laptop, asus, msi, acer, hp","gpu":"https://s.shopee.tw/70CwOcg85W","nvidia":"https://s.shopee.tw/70CwOcg85W"}
+AFFILIATE_MAP = {"default":"https://s.shopee.tw/4q8RoXHOja","apple":"https://s.shopee.tw/1qUqF3scBf","iphone":"https://s.shopee.tw/1qUqF3scBf","android":"https://s.shopee.tw/4Asl1N0Vya","samsung":"https://s.shopee.tw/4Asl1N0Vya","laptop":"https://s.shopee.tw/Lg2SLfJBA","asus":"https://s.shopee.tw/Lg2SLfJBA","gpu":"https://s.shopee.tw/70CwOcg85W","nvidia":"https://s.shopee.tw/70CwOcg85W"}
 HISTORY_FILE = "history.txt"
 STYLES = ["毒舌科技評論","數據分析師"]
 
@@ -67,17 +67,13 @@ if not target:
 # [V21: AUTO-DETECT MODELS]
 genai.configure(api_key=ENV["KEY"])
 valid_model_name = None
-
-# Fallback list if auto-detect fails
 fallback_models = ['gemini-1.5-flash', 'gemini-1.5-pro', 'gemini-1.0-pro', 'gemini-pro']
 
 log("Checking available models...")
 try:
-    # Ask Google what models we can use
     for m in genai.list_models():
         if 'generateContent' in m.supported_generation_methods:
             name = m.name.replace('models/', '')
-            # Prioritize flash or pro
             if 'flash' in name or 'pro' in name:
                 valid_model_name = name
                 log(f"Auto-detected valid model: {name}")
@@ -85,7 +81,6 @@ try:
 except Exception as e:
     log(f"Model auto-detect failed: {e}. Using fallback list.", "WARN")
 
-# Build final try list
 models_to_try = [valid_model_name] if valid_model_name else []
 models_to_try.extend(fallback_models)
 
@@ -129,7 +124,7 @@ try:
     msg['Subject'] = generated["title"]
     msg['From'] = ENV["USER"]
     msg['To'] = BLOGGER_EMAIL
-    btn = f'<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#db2777;color:white;padding:12px 28px;border-radius:30px;text-decoration:none;font-weight:bold;">👉 查看相關優惠</a></div>'
+    btn = f'<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#059669;color:white;padding:12px 28px;border-radius:30px;text-decoration:none;font-weight:bold;">👉 查看相關優惠</a></div>'
     msg.attach(MIMEText(generated["body"] + btn, 'html'))
     
     server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
