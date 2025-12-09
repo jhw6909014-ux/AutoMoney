@@ -1,103 +1,83 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os, sys, json, random, hashlib, smtplib
+# Bot Project: AutoMoney
+import os, sys, json, random, hashlib, smtplib, logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-# 1. 檢查套件
-print("🔍 步驟 1: 檢查環境...")
 try:
     import feedparser
     import google.generativeai as genai
-    print("✅ 環境正常")
-except ImportError as e:
-    print(f"❌ 環境錯誤: 缺少套件 {e}")
-    sys.exit(1)
+except:
+    sys.exit(0)
 
-# 2. 檢查 Secrets
-print("🔍 步驟 2: 檢查金鑰...")
+CONFIG = {
+    "RSS": "https://news.google.com/rss/search?q=smartphone%20review%20OR%20AI%20news%20OR%20apple%20rumors+when:1d&hl=en-US&gl=US&ceid=US:en",
+    "CAT": "tech",
+    "STYLES": ["毒舌科技評論","數據分析師","3C發燒友","矽谷觀察家","敗家開箱"],
+    "MAP": {"default":"https://s.shopee.tw/4q8RoXHOja","apple":"https://s.shopee.tw/1qUqF3scBf","iphone":"https://s.shopee.tw/1qUqF3scBf","mac":"https://s.shopee.tw/1qUqF3scBf","ios":"https://s.shopee.tw/1qUqF3scBf","android":"https://s.shopee.tw/4Asl1N0Vya","samsung":"https://s.shopee.tw/4Asl1N0Vya","pixel":"https://s.shopee.tw/4Asl1N0Vya","oppo":"https://s.shopee.tw/4Asl1N0Vya","laptop":"https://s.shopee.tw/Lg2SLfJBA","asus":"https://s.shopee.tw/Lg2SLfJBA","msi":"https://s.shopee.tw/Lg2SLfJBA","acer":"https://s.shopee.tw/Lg2SLfJBA","hp":"https://s.shopee.tw/Lg2SLfJBA","gpu":"https://s.shopee.tw/70CwOcg85W","nvidia":"https://s.shopee.tw/70CwOcg85W","rtx":"https://s.shopee.tw/70CwOcg85W","amd":"https://s.shopee.tw/70CwOcg85W","cpu":"https://s.shopee.tw/70CwOcg85W","headphone":"https://s.shopee.tw/5VO8btbgNo","airpods":"https://s.shopee.tw/5VO8btbgNo","sony":"https://s.shopee.tw/40ZKp9zH86","bose":"https://s.shopee.tw/5VO8btbgNo","camera":"https://s.shopee.tw/40ZKp9zH86","canon":"https://s.shopee.tw/40ZKp9zH86","lens":"https://s.shopee.tw/40ZKp9zH86"},
+    "HISTORY": "history.txt"
+}
 ENV = {
     "KEY": os.environ.get("GOOGLE_API_KEY"),
     "USER": os.environ.get("GMAIL_USER"),
     "PW": os.environ.get("GMAIL_APP_PASSWORD"),
     "TO": "jhw6909014.money2025@blogger.com"
 }
-if not ENV["KEY"]: 
-    print("❌ 錯誤: 缺少 GOOGLE_API_KEY")
-    sys.exit(1)
-if not ENV["USER"] or not ENV["PW"]: 
-    print("❌ 錯誤: 缺少 GMAIL 帳密")
-    sys.exit(1)
-print("✅ 金鑰讀取成功")
 
-# 設定
-RSS_URL = "https://news.google.com/rss/search?q=iphone+when:1d&hl=en-US&gl=US&ceid=US:en"
-print(f"🔍 步驟 3: 抓取 RSS -> {RSS_URL}")
+logging.basicConfig(level=logging.INFO)
 
-feed = feedparser.parse(RSS_URL)
-if not feed.entries:
-    print("❌ 錯誤: RSS 沒有抓到任何新聞。請嘗試更換關鍵字或移除 'when:1d'。")
-    sys.exit(1)
-print(f"✅ 成功抓到 {len(feed.entries)} 篇新聞")
+def get_smart_link(text):
+    text = text.lower()
+    for k, v in CONFIG["MAP"].items():
+        if k != "default" and k in text: return v
+    return CONFIG["MAP"]["default"]
 
-# 準備歷史紀錄
-history = set()
-if os.path.exists("history.txt"):
-    history = set(line.strip() for line in open("history.txt"))
-
-# 開始處理 (只處理第一篇有效的)
-target_entry = None
-for entry in feed.entries[:5]:
-    tid = hashlib.sha256(entry.title.encode()).hexdigest()
-    if tid not in history:
-        target_entry = entry
-        break
-
-if not target_entry:
-    print("⚠️ 警告: 所有新聞都已發布過 (history.txt 已包含)。")
-    # 這裡不報錯，算正常結束
-    sys.exit(0)
-
-print(f"🔍 步驟 4: AI 改寫中 -> {target_entry.title}...")
-genai.configure(api_key=ENV["KEY"])
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-prompt = f"""
-請將此新聞改寫為繁體中文部落格文章 (HTML格式)。
-新聞標題: {target_entry.title}
-摘要: {getattr(target_entry, 'summary', '')}
-回傳格式 JSON: {{ "valid": true, "title": "...", "body": "..." }}
-"""
-
-try:
-    res = model.generate_content(prompt)
-    data = json.loads(res.text.replace('```json','').replace('```',''))
-    print("✅ AI 生成成功")
-except Exception as e:
-    print(f"❌ AI 生成失敗: {e}")
-    sys.exit(1)
-
-# 發信
-print(f"🔍 步驟 5: 準備發信給 -> {ENV['TO']}...")
-try:
-    msg = MIMEMultipart()
-    msg['Subject'] = data["title"]
-    msg['From'] = ENV["USER"]
-    msg['To'] = ENV["TO"]
+def run():
+    genai.configure(api_key=ENV["KEY"])
+    feed = feedparser.parse(CONFIG["RSS"])
+    if not feed.entries: return
     
-    btn = f'<br><a href="https://shopee.tw/">查看詳情</a>'
-    msg.attach(MIMEText(data["body"] + btn, 'html'))
-    
-    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-    server.login(ENV["USER"], ENV["PW"])
-    server.send_message(msg)
-    server.quit()
-    print("✅ 發信成功！")
-    
-    # 寫入歷史
-    with open("history.txt", 'a') as f: f.write(hashlib.sha256(target_entry.title.encode()).hexdigest() + "\n")
-    
-except Exception as e:
-    print(f"❌ 發信失敗 (SMTP Error): {e}")
-    print("請檢查：1. Gmail 是否開啟兩步驟驗證 2. 是否使用 16 位數應用程式密碼")
-    sys.exit(1)
+    history = set()
+    if os.path.exists(CONFIG["HISTORY"]):
+        history = set(line.strip() for line in open(CONFIG["HISTORY"]))
+        
+    for entry in feed.entries[:5]:
+        tid = hashlib.sha256(entry.title.encode()).hexdigest()
+        if tid in history: continue
+        
+        # V17 Fix: Fallback mechanism
+        try:
+            model = genai.GenerativeModel('gemini-1.5-flash')
+        except:
+            model = genai.GenerativeModel('gemini-pro')
+
+        style = random.choice(CONFIG["STYLES"])
+        prompt = f"""
+        Role: Blogger ({CONFIG['CAT']}). Tone: {style}.
+        News: {entry.title}
+        Summary: {getattr(entry, 'summary', '')}
+        Task: Rewrite to Traditional Chinese (Taiwan) blog post HTML.
+        Format JSON: {{ "valid": true, "title": "...", "body": "..." }}
+        Must include valid: false if unrelated.
+        """
+        try:
+            res = model.generate_content(prompt)
+            data = json.loads(res.text.replace('```json','').replace('```',''))
+            if data.get("valid"):
+                link = get_smart_link(data["title"] + data["body"])
+                btn = f'<br><div style="text-align:center;margin:30px;"><a href="{link}" style="background:#db2777;color:white;padding:12px 28px;border-radius:30px;text-decoration:none;font-weight:bold;">👉 查看優惠 / 相關商品</a></div>'
+                msg = MIMEMultipart()
+                msg['Subject'] = data["title"]
+                msg['From'] = ENV["USER"]
+                msg['To'] = ENV["TO"]
+                msg.attach(MIMEText(data["body"] + btn, 'html'))
+                with smtplib.SMTP_SSL('smtp.gmail.com', 465) as s:
+                    s.login(ENV["USER"], ENV["PW"])
+                    s.send_message(msg)
+                with open(CONFIG["HISTORY"], 'a') as f: f.write(tid + "\n")
+                break
+        except Exception as e:
+            logging.error(e)
+if __name__ == "__main__":
+    run()
