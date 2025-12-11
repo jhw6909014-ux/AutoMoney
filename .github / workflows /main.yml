@@ -29,6 +29,7 @@ jobs:
           WORDPRESS_URL: ${{ secrets.WORDPRESS_URL }}
           WORDPRESS_USER: ${{ secrets.WORDPRESS_USER }}
           WORDPRESS_APP_PASSWORD: ${{ secrets.WORDPRESS_APP_PASSWORD }}
+        # ↓↓↓ 修正重點：run 必須跟上面的 env 對齊 (往左靠) ↓↓↓
         run: python bot_code.py
 
       - name: 5. 儲存記憶
