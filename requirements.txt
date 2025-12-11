@@ -1,4 +1,2 @@
 feedparser
 google-generativeai
-python-wordpress-xmlrpc
-requests
