@@ -6,6 +6,7 @@ import smtplib
 import urllib.parse
 import feedparser
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from email.mime.text import MIMEText
 from email.header import Header
 
@@ -21,6 +22,7 @@ def get_dynamic_rss():
     target_keyword = random.choice(KEYWORD_POOL)
     logger.info(f"🎯 鎖定關鍵字: {target_keyword}")
     encoded = urllib.parse.quote(target_keyword)
+    # 使用 Google News RSS
     rss_url = f"https://news.google.com/rss/search?q={encoded}+when:1d&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
     return rss_url, target_keyword
 
@@ -60,47 +62,93 @@ def ai_writer(title, summary, keyword):
         logger.error("❌ 找不到 GOOGLE_API_KEY")
         return None
     
+    # 印出版本以確認環境 (除錯用)
+    logger.info(f"📚 Google GenAI Library Version: {genai.__version__}")
+
     genai.configure(api_key=api_key)
     
-    # --- 修正：使用 gemini-1.5-flash 並配合 requirements.txt 更新 ---
-    model = genai.GenerativeModel('gemini-1.5-flash')
-    # -----------------------------------------------------------
+    # 設定安全過濾器，避免因為新聞內容稍微敏感就被 AI 拒絕生成
+    safety_settings = {
+        HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+    }
+
+    # 指定模型，若 flash 版本有問題，可以改用 gemini-1.5-flash-latest 或 gemini-pro
+    model_name = 'gemini-1.5-flash'
+    model = genai.GenerativeModel(model_name, safety_settings=safety_settings)
     
-    prompt = f"你是一位{BOT_PERSONA}。請將這則新聞改寫成一篇繁體中文部落格文章，重點介紹{keyword}的相關資訊。\n\n新聞標題：{title}\n新聞摘要：{summary}\n\n要求：\n1. 語氣專業且生動。\n2. 必須包含一個 HTML 表格比較相關產品規格或優缺點。\n3. 文章結尾要引導讀者查看優惠。"
+    prompt = f"""
+    你是一位{BOT_PERSONA}。請將這則新聞改寫成一篇繁體中文部落格文章，重點介紹{keyword}的相關資訊。
     
-    logger.info("🤖 呼叫 Google Gemini 1.5 Flash...")
+    新聞標題：{title}
+    新聞摘要：{summary}
+    
+    要求：
+    1. 標題要吸引人 (SEO友善)。
+    2. 語氣專業且生動。
+    3. 內容必須包含 HTML 格式 (使用 <p>, <h3>, <ul>, <li> 等標籤)。
+    4. 必須包含一個 HTML 表格 (<table>) 比較相關產品規格或優缺點 (若無具體數據請根據常識推斷)。
+    5. 文章結尾請加上一句引導語，鼓勵讀者點擊下方按鈕查看價格。
+    6. 不要輸出 ```html 標記，直接輸出 HTML 程式碼。
+    """
+    
+    logger.info(f"🤖 呼叫 Google Gemini ({model_name})...")
     
     for attempt in range(3):
         try:
             res = model.generate_content(prompt)
+            # 檢查回應是否被安全設定擋下
             if res.text:
                 logger.info("✅ AI 生成成功！")
                 text = res.text.replace("```html", "").replace("```", "")
                 btn = create_shopee_button(keyword)
                 return text + btn
+            else:
+                logger.warning(f"⚠️ AI 回應為空 (可能是安全過濾): {res.prompt_feedback}")
         except Exception as e:
             logger.error(f"⚠️ AI 生成失敗 (第 {attempt+1} 次): {e}")
+            # 如果是 404，可能是模型名稱錯誤，嘗試列出可用模型 (僅在 Log 顯示)
+            if "404" in str(e) and attempt == 0:
+                try:
+                    logger.info("列出可用模型以供除錯:")
+                    for m in genai.list_models():
+                        if 'generateContent' in m.supported_generation_methods:
+                            logger.info(f"- {m.name}")
+                except:
+                    pass
             time.sleep(2)
             
     return None
 
 def main():
-    logger.info("V29 Fixed Started...")
+    logger.info("V30 Fixed Logic Started...")
     rss_url, target_keyword = get_dynamic_rss()
-    feed = feedparser.parse(rss_url)
     
+    try:
+        feed = feedparser.parse(rss_url)
+    except Exception as e:
+        logger.error(f"❌ RSS 解析失敗: {e}")
+        return
+
     if not feed.entries:
         logger.warning("⚠️ 沒抓到新聞")
         return
 
-    # 隨機挑選一篇新聞，避免每次都抓到同一篇置頂
-    entry = feed.entries[0]
+    # 隨機挑選前 3 篇的其中一篇，增加隨機性
+    target_entry_index = random.randint(0, min(2, len(feed.entries)-1))
+    entry = feed.entries[target_entry_index]
+    
     logger.info(f"Processing: {entry.title}")
     
-    content = ai_writer(entry.title, getattr(entry, "summary", ""), target_keyword)
+    # 取得摘要，若無摘要則用標題代替
+    summary_text = getattr(entry, "summary", entry.title)
+    
+    content = ai_writer(entry.title, summary_text, target_keyword)
     
     if content:
-        send_email_to_blogger(f"【{target_keyword}情報】{entry.title}", content)
+        send_email_to_blogger(f"【{target_keyword}快訊】{entry.title}", content)
     else:
         logger.error("❌ AI 無法產出內容，跳過。")
 
