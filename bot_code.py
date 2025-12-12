@@ -10,10 +10,10 @@ import google.generativeai as genai
 from email.mime.text import MIMEText
 from email.header import Header
 
-# --- V35 CONFIG ---
+# --- V32 CONFIG ---
 SHOPEE_ID = "16332290023"
 BOT_PERSONA = "3C科技發燒友"
-IMG_STYLE = "cyberpunk style, futuristic, product photography"
+IMG_STYLE = "cyberpunk style, futuristic, product photography, dramatic lighting, high tech"
 KEYWORD_POOL = ["iPhone","Android","顯示卡","AI PC","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源"]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -29,74 +29,44 @@ def get_dynamic_rss():
 def create_shopee_button(keyword):
     safe_keyword = urllib.parse.quote(keyword)
     url = f"https://shopee.tw/search?keyword={safe_keyword}&utm_source=affiliate&utm_campaign={SHOPEE_ID}"
-    
     return f"""
-    <div style="clear: both; margin-top: 50px; padding: 25px; background-color: #f8fafc; border-radius: 12px; text-align: center; border: 1px solid #e2e8f0;">
-        <h3 style="margin-bottom: 15px; font-size: 19px; color: #1e293b; font-weight: bold;">💡 讀者專屬優惠</h3>
+    <div style="margin:50px 0;text-align:center;">
         <a href="{url}" target="_blank" rel="nofollow" 
-           style="display: inline-block; background-color: #ef4444; color: white; padding: 16px 36px; border-radius: 50px; text-decoration: none; font-weight: bold; font-size: 18px; box-shadow: 0 4px 15px rgba(239,68,68,0.4); transition: transform 0.2s;">
-           🛒 點此查看「{keyword}」最新價格
+           style="background-color:#e94560;color:white;padding:16px 32px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:18px;box-shadow:0 4px 15px rgba(233,69,96,0.5);transition:all 0.3s;">
+           🛍️ 查看「{keyword}」限時優惠
         </a>
-        <p style="margin-top: 12px; font-size: 13px; color: #64748b;">(點擊前往蝦皮購物)</p>
     </div>
     """
 
-# --- V35 重點：暴力格線注入 ---
-def style_table_html(html_text):
-    """
-    使用 inline css 強制加上黑色格線，解決 Blogger 吃掉表格線的問題
-    """
-    # 1. 替換 table 標籤，加上 border="1" (舊屬性在某些環境很有效) 和 CSS
-    # 並加上 div wrapper 以便手機版滑動
-    styled_table_start = """
-    <div style="overflow-x: auto; margin: 20px 0;">
-        <table border="1" cellspacing="0" cellpadding="5" style="width: 100%; border-collapse: collapse; border: 1px solid #333; font-size: 16px;">
-    """
-    
-    # 這裡使用正則表達式取代 <table ...>，避免因為屬性不同而失敗
-    html_text = re.sub(r'<table[^>]*>', styled_table_start, html_text)
-    
-    # 2. 強制美化 th (表頭)：淺灰底 + 黑線
-    styled_th = '<th style="background-color: #f1f5f9; color: #1e293b; font-weight: bold; padding: 12px; border: 1px solid #333; text-align: left;">'
-    html_text = re.sub(r'<th[^>]*>', styled_th, html_text)
-    
-    # 3. 強制美化 td (格子)：黑線 + 內距
-    styled_td = '<td style="padding: 12px; border: 1px solid #333; color: #334155;">'
-    html_text = re.sub(r'<td[^>]*>', styled_td, html_text)
-    
-    # 4. 補上 div 結尾 (如果我們加了開頭的 div)
-    if '<div style="overflow-x: auto;' in html_text:
-        html_text = html_text.replace('</table>', '</table></div>')
-        
-    return html_text
-
+# --- V32 核心：動態圖片注入 ---
 def inject_images_into_content(text):
-    try:
-        def replacer(match):
-            try:
-                img_prompt = match.group(1).strip()
-                if not img_prompt: return "" 
-                
-                full_prompt = f"{img_prompt}, {IMG_STYLE}"
-                encoded = urllib.parse.quote(full_prompt)
-                seed = random.randint(1, 99999)
-                img_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={seed}&width=800&height=450&nologo=true"
-                
-                return f"""
-                <div style="margin: 30px 0; text-align: center;">
-                    <img src="{img_url}" alt="{img_prompt}" style="width: 100%; max-width: 800px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.15);">
-                    <p style="font-size: 13px; color: #888; margin-top: 8px;">(AI 示意圖：{img_prompt})</p>
-                </div>
-                """
-            except:
-                return ""
-
-        pattern = r'\(\(IMG:(.*?)\)\)'
-        new_text = re.sub(pattern, replacer, text, flags=re.DOTALL | re.IGNORECASE)
-        return new_text
+    """
+    搜尋文字中的 [IMG: ...] 標籤，並將其替換為 Pollinations 的圖片連結
+    """
+    def replacer(match):
+        # 取得 [] 裡面的描述文字
+        img_prompt = match.group(1)
         
-    except:
-        return text 
+        # 結合全域風格設定
+        full_prompt = f"{img_prompt}, {IMG_STYLE}"
+        encoded = urllib.parse.quote(full_prompt)
+        
+        # 隨機種子確保圖片不重複
+        seed = random.randint(1, 99999)
+        img_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={seed}&width=800&height=450&nologo=true"
+        
+        # 回傳美化的 img 標籤
+        return f"""
+        <div style="margin: 30px 0; text-align: center;">
+            <img src="{img_url}" alt="{img_prompt}" style="width: 100%; max-width: 800px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.15);">
+            <p style="font-size: 13px; color: #666; margin-top: 8px; font-style: italic;">(AI 示意圖：{img_prompt})</p>
+        </div>
+        """
+
+    # 使用 Regex 替換所有 [IMG: ...]
+    # Pattern 說明: [IMG: 抓取開頭, (.*?) 抓取內容, ] 抓取結尾
+    new_text = re.sub(r'[IMG:s*(.*?)]', replacer, text)
+    return new_text
 
 def send_email_to_blogger(title, html_content):
     sender = os.environ.get("GMAIL_USER")
@@ -131,47 +101,50 @@ def ai_writer(title, summary, keyword):
     except:
         model = genai.GenerativeModel('gemini-pro')
 
+    # --- V32 關鍵：指示 AI 在文中插入圖片標籤 ---
     prompt = f"""
     你是一位【{BOT_PERSONA}】。
     文章主題：【{keyword}】。
     新聞標題：{title}
+    新聞摘要：{summary}
     
-    請撰寫一篇部落格文章。
+    請撰寫一篇豐富的部落格文章。
     
-    【圖片指令】：
-    請在「開頭」、「中間」和「結尾前」，插入圖片指令： ((IMG: 圖片描述))
+    【圖片指令 (非常重要)】：
+    請在文章的「開頭」、「中間段落」和「結尾前」，根據該段落的內容，插入總共 2 到 3 個圖片佔位符。
+    格式必須是： [IMG: 圖片的具體英文描述]
+    例如：
+    - 開頭放： [IMG: Close up of {keyword}, cinematic lighting]
+    - 講到規格時放： [IMG: detailed tech specs chart or component of {keyword}]
     
-    【表格要求】：
-    請包含一個 HTML <table> 表格，比較規格。
-    注意：請只輸出最基本的 <table>, <tr>, <th>, <td> 標籤即可。
-    
-    【HTML 格式】：
-    使用 <h2>, <p> 等標籤排版。不要 markdown。
+    【HTML 格式要求】：
+    1. 不要輸出 ```html 標記。
+    2. 使用 <h2> 分段標題。
+    3. 必須包含一個 HTML <table> 比較表格。
+    4. 內容要豐富，語氣生動。
     """
     
     for attempt in range(3):
         try:
             res = model.generate_content(prompt)
             if res.text:
+                # 1. 清理 Markdown
                 raw_html = res.text.replace("```html", "").replace("```", "")
                 
-                # 1. 注入圖片
-                html_with_img = inject_images_into_content(raw_html)
+                # 2. 注入圖片 (V32 新功能)
+                rich_html = inject_images_into_content(raw_html)
                 
-                # 2. V35: 暴力注入格線
-                final_content = style_table_html(html_with_img)
-                
-                # 3. 按鈕
+                # 3. 加入按鈕
                 btn = create_shopee_button(keyword)
                 
-                return final_content + btn
+                return rich_html + btn
         except Exception as e:
-            logger.error(f"⚠️ Error: {e}")
+            logger.error(f"⚠️ 錯誤: {e}")
             time.sleep(2)
     return None
 
 def main():
-    logger.info("V35 Ultimate Table Fix Started...")
+    logger.info("V32 Ultimate Bot Started...")
     rss_url, target_keyword = get_dynamic_rss()
     
     try:
@@ -182,15 +155,18 @@ def main():
         if os.path.exists("history.txt"):
             with open("history.txt", "r") as f: history = f.read().splitlines()
         
+        # 篩選新文章
         candidates = [e for e in feed.entries if e.link not in history]
         if not candidates: return
 
+        # 隨機選一篇
         entry = random.choice(candidates[:3])
         logger.info(f"Processing: {entry.title}")
         
         content = ai_writer(entry.title, getattr(entry, "summary", ""), target_keyword)
         
         if content:
+            # 標題加入吸睛 Emoji
             emojis = ["🔥", "⚡", "💡", "🚀", "📢"]
             emo = random.choice(emojis)
             email_title = f"{emo} 【{target_keyword}】{entry.title}"
