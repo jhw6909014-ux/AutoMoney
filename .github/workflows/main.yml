@@ -1,4 +1,4 @@
-name: AutoMoney V48 Run
+name: AutoMoney V50 Run
 on:
   schedule:
     - cron: '15 */4 * * *'
