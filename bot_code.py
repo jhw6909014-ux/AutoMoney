@@ -7,14 +7,22 @@ import re
 import urllib.parse
 import feedparser
 import google.generativeai as genai
+from google.api_core.exceptions import ResourceExhausted, ServiceUnavailable, InternalServerError
 from email.mime.text import MIMEText
 from email.header import Header
 
-# --- V41 CONFIG ---
+# --- V42 CONFIG ---
 SHOPEE_ID = "16332290023"
 BOT_PERSONA = "3C科技發燒友"
 IMG_STYLE = "cyberpunk style, futuristic, product photography"
 KEYWORD_POOL = ["iPhone","Android","顯示卡","AI PC","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源"]
+
+# 軍用級模型輪替清單
+MODEL_ARSENAL = [
+    'gemini-1.5-flash',       # 主力輕型戰機 (速度快)
+    'gemini-1.5-pro',         # 重型轟炸機 (穩定)
+    'gemini-1.0-pro-latest'   # 備用後勤機 (保底)
+]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -75,7 +83,6 @@ def generate_pollinations_url(prompt):
     return f"https://image.pollinations.ai/prompt/{encoded}?seed={seed}&width=800&height=450&nologo=true"
 
 def inject_images_into_content(text):
-    # 處理 ((IMG:...))
     try:
         def standard_replacer(match):
             img_prompt = match.group(1).strip()
@@ -85,7 +92,6 @@ def inject_images_into_content(text):
         text = re.sub(r'\(\(IMG:(.*?)\)\)', standard_replacer, text, flags=re.DOTALL | re.IGNORECASE)
     except: pass
     
-    # 掃雷 (AI 示意圖)
     try:
         def failure_replacer(match):
             desc = match.group(1).strip()
@@ -96,39 +102,23 @@ def inject_images_into_content(text):
     except: pass
     return text
 
-# --- V41 核心：CSS 暴力注入與格式清洗 ---
 def beautify_and_clean_html(html_text):
-    """
-    1. 清除可能殘留的 Markdown 符號
-    2. 強制注入 CSS 樣式到 HTML 標籤
-    """
-    
-    # A. 救援機制：如果 AI 還是寫了 markdown 的 ###，強制轉 h2
     html_text = re.sub(r'^###s+(.*)$', r'<h2>\1</h2>', html_text, flags=re.MULTILINE)
     html_text = re.sub(r'^##s+(.*)$', r'<h2>\1</h2>', html_text, flags=re.MULTILINE)
-    
-    # B. 救援機制：如果 AI 寫了 **粗體**，強制轉 strong
     html_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_text)
 
-    # C. CSS 注入：標題
     styled_h2 = '<h2 style="color: #0369a1; font-size: 24px; margin-top: 40px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid #e0f2fe; font-weight: bold;">'
     html_text = html_text.replace('<h2>', styled_h2)
     
-    # D. CSS 注入：段落 (關鍵！解決文字擠在一起)
-    # line-height: 1.8 讓行距變大
-    # margin-bottom: 25px 讓段落間分開
     styled_p = '<p style="font-size: 17px; line-height: 1.9; margin-bottom: 25px; color: #334155;">'
     html_text = html_text.replace('<p>', styled_p)
     
-    # E. CSS 注入：列表
     styled_ul = '<ul style="margin-bottom: 25px; padding-left: 20px; list-style-type: disc;">'
     html_text = html_text.replace('<ul>', styled_ul)
     styled_li = '<li style="margin-bottom: 10px; font-size: 17px; line-height: 1.6;">'
     html_text = html_text.replace('<li>', styled_li)
     
-    # F. CSS 注入：表格 (V35 邏輯整合)
     if '<table>' in html_text or '|' in html_text:
-        # 嘗試簡單的正則替換來修復表格
         styled_table_start = """
         <div style="overflow-x: auto; margin: 30px 0;">
             <table border="1" cellspacing="0" cellpadding="8" style="width: 100%; border-collapse: collapse; border: 2px solid #333; font-size: 16px;">
@@ -138,7 +128,7 @@ def beautify_and_clean_html(html_text):
         html_text = html_text.replace('<td>', '<td style="padding: 12px; border: 1px solid #cbd5e1;">')
         
         if '<div style="overflow-x: auto;' in html_text and '</table>' in html_text:
-             if '</table></div>' not in html_text: # 避免重複加
+             if '</table></div>' not in html_text:
                 html_text = html_text.replace('</table>', '</table></div>')
                 
     return html_text
@@ -164,16 +154,41 @@ def send_email_to_blogger(title, html_content):
         logger.error(f"❌ Email 發送失敗: {e}")
         return False
 
+# --- V42 核心：軍用級抗 429 邏輯 ---
+def generate_content_with_retry(prompt):
+    """
+    輪詢多個模型，遇到 429 錯誤自動切換並冷卻
+    """
+    for model_name in MODEL_ARSENAL:
+        try:
+            logger.info(f"🚀 嘗試使用模型: {model_name}")
+            model = genai.GenerativeModel(model_name)
+            response = model.generate_content(prompt)
+            return response
+            
+        except ResourceExhausted:
+            logger.warning(f"⚠️ 模型 {model_name} 額度耗盡 (429)。啟動戰術冷卻 30秒...")
+            time.sleep(30) # 強制冷卻 30 秒
+            logger.info("🔄 切換至下一備用模型...")
+            continue # 嘗試下一個模型
+            
+        except (ServiceUnavailable, InternalServerError) as e:
+            logger.error(f"⚠️ Google 服務端錯誤 ({e})。等待 10秒...")
+            time.sleep(10)
+            continue
+            
+        except Exception as e:
+            logger.error(f"❌ 未知錯誤: {e}")
+            break # 非連線錯誤，直接停止以免無限迴圈
+
+    logger.error("❌ 所有模型皆無法使用，任務中止。")
+    return None
+
 def ai_writer(title, summary, keyword):
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: return None
     genai.configure(api_key=api_key)
-    try:
-        model = genai.GenerativeModel('gemini-flash-latest')
-    except:
-        model = genai.GenerativeModel('gemini-pro')
 
-    # --- V41 指令：強制 HTML 輸出，禁止 Markdown ---
     prompt = f"""
     你是一位【{BOT_PERSONA}】。
     文章主題：【{keyword}】。
@@ -183,12 +198,11 @@ def ai_writer(title, summary, keyword):
     
     【極重要格式指令】：
     1. **請直接輸出 HTML 原始碼**。
-    2. **嚴禁使用 Markdown** (不要用 ##, 不要用 **)。
+    2. **嚴禁使用 Markdown**。
     3. 標題請用 <h2>...</h2>。
-    4. 段落請用 <p>...</p> (每個段落都要用 p 標籤包起來)。
+    4. 段落請用 <p>...</p>。
     5. 表格請用 <table>...</table>。
     6. 圖片請插入 ((IMG: English Description))。
-    7. 不要輸出 ```html 代碼塊，直接輸出內容。
     
     【內容結構】：
     1. <h2>副標題</h2>
@@ -197,34 +211,22 @@ def ai_writer(title, summary, keyword):
     4. <h2>結論</h2>
     """
     
-    for attempt in range(3):
-        try:
-            res = model.generate_content(prompt)
-            if res.text:
-                # 清理可能存在的代碼塊標記
-                raw_html = res.text.replace("```html", "").replace("```", "")
-                
-                # 1. 注入圖片
-                html_with_img = inject_images_into_content(raw_html)
-                
-                # 2. V41：暴力 CSS 美化 (關鍵步驟)
-                final_html = beautify_and_clean_html(html_with_img)
-                
-                # 3. 首圖 & 按鈕
-                hero_img = get_hero_image(keyword)
-                btn = create_shopee_button(keyword)
-                
-                # 外層再包一個 div 確保字體
-                wrapper = f"""<div style="font-family: Arial, Helvetica, sans-serif; color: #333; max-width: 100%;">{final_html}</div>"""
-                
-                return hero_img + wrapper + btn
-        except Exception as e:
-            logger.error(f"⚠️ Error: {e}")
-            time.sleep(2)
+    # 呼叫軍用級生成函式
+    res = generate_content_with_retry(prompt)
+    
+    if res and res.text:
+        raw_html = res.text.replace("```html", "").replace("```", "")
+        html_with_img = inject_images_into_content(raw_html)
+        final_html = beautify_and_clean_html(html_with_img)
+        hero_img = get_hero_image(keyword)
+        btn = create_shopee_button(keyword)
+        wrapper = f"""<div style="font-family: Arial, Helvetica, sans-serif; color: #333; max-width: 100%;">{final_html}</div>"""
+        return hero_img + wrapper + btn
+    
     return None
 
 def main():
-    logger.info("V41 Direct HTML Bot Started...")
+    logger.info("V42 Military Bot Started...")
     rss_url, target_keyword = get_dynamic_rss()
     try:
         feed = feedparser.parse(rss_url)
