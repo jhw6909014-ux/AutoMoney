@@ -65,7 +65,7 @@ def ai_writer(title, summary, keyword):
         return None
     
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    model = genai.GenerativeModel('gemini-pro')
     
     prompt = f"請將這則新聞改寫成部落格文章，並提到{keyword}。\n新聞標題：{title}\n新聞摘要：{summary}"
     
