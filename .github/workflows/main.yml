@@ -1,7 +1,7 @@
-name: AutoMoney V50 Run
+name: AutoMoney V51 Run
 on:
   schedule:
-    - cron: '15 */4 * * *'
+    - cron: '45 */4 * * *'
   workflow_dispatch:
 
 jobs:
@@ -20,7 +20,7 @@ jobs:
           GMAIL_USER: ${{ secrets.GMAIL_USER }}
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           BLOGGER_EMAIL: ${{ secrets.BLOGGER_EMAIL }}
-        run: python bot_code.py
+        run: python bot_v51_architect.py
       - run: |
           git config --global user.name "Blogger Bot"
           git config --global user.email "bot@blogger"
