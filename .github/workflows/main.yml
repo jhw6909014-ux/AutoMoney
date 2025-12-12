@@ -1,7 +1,7 @@
-name: Auto-Blogger V30 Run
+name: AutoMoney V31 Run
 on:
   schedule:
-    - cron: '45 */6 * * *'
+    - cron: '30 */4 * * *'
   workflow_dispatch:
 
 jobs:
