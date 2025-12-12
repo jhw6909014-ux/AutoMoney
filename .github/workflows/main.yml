@@ -1,4 +1,4 @@
-name: Auto-Blogger V29 Run
+name: Auto-Blogger V30 Run
 on:
   schedule:
     - cron: '45 */6 * * *'
