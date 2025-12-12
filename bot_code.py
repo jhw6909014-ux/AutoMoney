@@ -10,10 +10,10 @@ import google.generativeai as genai
 from email.mime.text import MIMEText
 from email.header import Header
 
-# --- V32 CONFIG ---
+# --- V33 CONFIG ---
 SHOPEE_ID = "16332290023"
 BOT_PERSONA = "3C科技發燒友"
-IMG_STYLE = "cyberpunk style, futuristic, product photography, dramatic lighting, high tech"
+IMG_STYLE = "cyberpunk style, futuristic, product photography, dramatic lighting"
 KEYWORD_POOL = ["iPhone","Android","顯示卡","AI PC","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源"]
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
@@ -32,41 +32,51 @@ def create_shopee_button(keyword):
     return f"""
     <div style="margin:50px 0;text-align:center;">
         <a href="{url}" target="_blank" rel="nofollow" 
-           style="background-color:#e94560;color:white;padding:16px 32px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:18px;box-shadow:0 4px 15px rgba(233,69,96,0.5);transition:all 0.3s;">
+           style="background-color:#60a5fa;color:white;padding:16px 32px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:18px;box-shadow:0 4px 15px rgba(96,165,250,0.5);transition:all 0.3s;">
            🛍️ 查看「{keyword}」限時優惠
         </a>
     </div>
     """
 
-# --- V32 核心：動態圖片注入 ---
+# --- V33 修復：更穩定的圖片注入邏輯 ---
 def inject_images_into_content(text):
     """
-    搜尋文字中的 [IMG: ...] 標籤，並將其替換為 Pollinations 的圖片連結
+    搜尋 ((IMG: ...)) 標籤並替換為圖片。加入 Try-Except 防止崩潰。
     """
-    def replacer(match):
-        # 取得 [] 裡面的描述文字
-        img_prompt = match.group(1)
-        
-        # 結合全域風格設定
-        full_prompt = f"{img_prompt}, {IMG_STYLE}"
-        encoded = urllib.parse.quote(full_prompt)
-        
-        # 隨機種子確保圖片不重複
-        seed = random.randint(1, 99999)
-        img_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={seed}&width=800&height=450&nologo=true"
-        
-        # 回傳美化的 img 標籤
-        return f"""
-        <div style="margin: 30px 0; text-align: center;">
-            <img src="{img_url}" alt="{img_prompt}" style="width: 100%; max-width: 800px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.15);">
-            <p style="font-size: 13px; color: #666; margin-top: 8px; font-style: italic;">(AI 示意圖：{img_prompt})</p>
-        </div>
-        """
+    try:
+        def replacer(match):
+            try:
+                # 取得括號內的描述文字
+                img_prompt = match.group(1).strip()
+                if not img_prompt: return "" # 空標籤則忽略
+                
+                # 結合全域風格
+                full_prompt = f"{img_prompt}, {IMG_STYLE}"
+                encoded = urllib.parse.quote(full_prompt)
+                
+                # 隨機種子
+                seed = random.randint(1, 99999)
+                img_url = f"https://image.pollinations.ai/prompt/{encoded}?seed={seed}&width=800&height=450&nologo=true"
+                
+                return f"""
+                <div style="margin: 30px 0; text-align: center;">
+                    <img src="{img_url}" alt="{img_prompt}" style="width: 100%; max-width: 800px; border-radius: 12px; box-shadow: 0 8px 20px rgba(0,0,0,0.15);">
+                    <p style="font-size: 13px; color: #888; margin-top: 8px; font-style: italic;">(AI 示意圖：{img_prompt})</p>
+                </div>
+                """
+            except Exception as e:
+                logger.error(f"單張圖片生成錯誤: {e}")
+                return "" # 若單張失敗，回傳空字串，不影響文章
 
-    # 使用 Regex 替換所有 [IMG: ...]
-    # Pattern 說明: [IMG: 抓取開頭, (.*?) 抓取內容, ] 抓取結尾
-    new_text = re.sub(r'[IMG:s*(.*?)]', replacer, text)
-    return new_text
+        # 使用 DOTALL 讓 . 可以匹配換行符號
+        # 匹配雙括號 ((IMG: ... ))
+        pattern = r'\(\(IMG:(.*?)\)\)'
+        new_text = re.sub(pattern, replacer, text, flags=re.DOTALL | re.IGNORECASE)
+        return new_text
+        
+    except Exception as e:
+        logger.error(f"❌ 圖片注入流程發生嚴重錯誤: {e}")
+        return text # 若發生嚴重錯誤，回傳原始文字，確保文章能發布
 
 def send_email_to_blogger(title, html_content):
     sender = os.environ.get("GMAIL_USER")
@@ -101,7 +111,7 @@ def ai_writer(title, summary, keyword):
     except:
         model = genai.GenerativeModel('gemini-pro')
 
-    # --- V32 關鍵：指示 AI 在文中插入圖片標籤 ---
+    # --- V33 提示詞：改用 ((IMG:...)) 避免 Markdown 衝突 ---
     prompt = f"""
     你是一位【{BOT_PERSONA}】。
     文章主題：【{keyword}】。
@@ -110,18 +120,18 @@ def ai_writer(title, summary, keyword):
     
     請撰寫一篇豐富的部落格文章。
     
-    【圖片指令 (非常重要)】：
-    請在文章的「開頭」、「中間段落」和「結尾前」，根據該段落的內容，插入總共 2 到 3 個圖片佔位符。
-    格式必須是： [IMG: 圖片的具體英文描述]
+    【圖片指令 (重要)】：
+    請在文章的「開頭」、「中間段落」和「結尾前」，根據該段落內容，插入總共 2 到 3 個圖片指令。
+    指令格式請使用雙括號： ((IMG: 圖片的具體英文描述))
     例如：
-    - 開頭放： [IMG: Close up of {keyword}, cinematic lighting]
-    - 講到規格時放： [IMG: detailed tech specs chart or component of {keyword}]
+    - 開頭： ((IMG: Close up of {keyword}, cinematic lighting))
+    - 中間： ((IMG: detailed tech specs chart or component of {keyword}))
     
-    【HTML 格式要求】：
-    1. 不要輸出 ```html 標記。
+    【內容要求】：
+    1. 輸出純 HTML 標籤 (不要輸出 ```html)。
     2. 使用 <h2> 分段標題。
-    3. 必須包含一個 HTML <table> 比較表格。
-    4. 內容要豐富，語氣生動。
+    3. 必須包含一個 <table> 比較表格。
+    4. 語氣生動專業。
     """
     
     for attempt in range(3):
@@ -131,7 +141,8 @@ def ai_writer(title, summary, keyword):
                 # 1. 清理 Markdown
                 raw_html = res.text.replace("```html", "").replace("```", "")
                 
-                # 2. 注入圖片 (V32 新功能)
+                # 2. 注入圖片 (V33 防呆版)
+                logger.info("正在注入圖片...")
                 rich_html = inject_images_into_content(raw_html)
                 
                 # 3. 加入按鈕
@@ -139,12 +150,12 @@ def ai_writer(title, summary, keyword):
                 
                 return rich_html + btn
         except Exception as e:
-            logger.error(f"⚠️ 錯誤: {e}")
+            logger.error(f"⚠️ 生成錯誤 (第{attempt+1}次): {e}")
             time.sleep(2)
     return None
 
 def main():
-    logger.info("V32 Ultimate Bot Started...")
+    logger.info("V33 Stable Bot Started...")
     rss_url, target_keyword = get_dynamic_rss()
     
     try:
@@ -155,18 +166,15 @@ def main():
         if os.path.exists("history.txt"):
             with open("history.txt", "r") as f: history = f.read().splitlines()
         
-        # 篩選新文章
         candidates = [e for e in feed.entries if e.link not in history]
         if not candidates: return
 
-        # 隨機選一篇
         entry = random.choice(candidates[:3])
         logger.info(f"Processing: {entry.title}")
         
         content = ai_writer(entry.title, getattr(entry, "summary", ""), target_keyword)
         
         if content:
-            # 標題加入吸睛 Emoji
             emojis = ["🔥", "⚡", "💡", "🚀", "📢"]
             emo = random.choice(emojis)
             email_title = f"{emo} 【{target_keyword}】{entry.title}"
