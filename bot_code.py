@@ -11,13 +11,13 @@ from google.api_core.exceptions import ResourceExhausted
 from email.mime.text import MIMEText
 from email.header import Header
 
-# --- V48 CONFIG ---
+# --- V50 CONFIG ---
 SHOPEE_ID = "16332290023"
 BOT_PERSONA = "專業部落客"
-IMG_STYLE = "realistic, 8k, high quality"
-KEYWORD_POOL = ["iPhone","Android","顯示卡","AI PC","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源"]
+IMG_STYLE = "cyberpunk, futuristic, high tech"
+KEYWORD_POOL = ["iPhone","Android","AI手機","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源","機械鍵盤","顯示卡","空拍機"]
 
-# 模型清單：優先使用 flash-latest，若被限流則等待
+# 模型清單
 MODEL_LIST = [
     'gemini-flash-latest', 
     'gemini-1.5-flash',
@@ -38,7 +38,7 @@ def create_shopee_button(keyword):
     safe_keyword = urllib.parse.quote(keyword)
     url = f"https://shopee.tw/search?keyword={safe_keyword}&utm_source=affiliate&utm_campaign={SHOPEE_ID}"
     css = """<style>@keyframes pulse{0%{transform:scale(1);}50%{transform:scale(1.05);}100%{transform:scale(1);}}.btn{animation:pulse 2s infinite;}</style>"""
-    return css + f"""<div style="margin:50px 0;text-align:center;"><a href="{url}" class="btn" style="background:#0284c7;color:white;padding:15px 30px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:20px;">🔥 查看 {keyword} 優惠</a></div>"""
+    return css + f"""<div style="margin:50px 0;text-align:center;"><a href="{url}" class="btn" style="background:#22c55e;color:#022c22;padding:15px 30px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:20px;">🔥 查看 {keyword} 最新優惠</a></div>"""
 
 def get_hero_image(keyword):
     try:
@@ -52,7 +52,7 @@ def generate_with_retry(prompt):
     genai.configure(api_key=os.environ.get("GOOGLE_API_KEY"))
     
     for model_name in MODEL_LIST:
-        logger.info(f"🚀 V48 嘗試模型: {model_name}")
+        logger.info(f"🚀 V50 嘗試模型: {model_name}")
         model = genai.GenerativeModel(model_name)
         
         for attempt in range(3):
@@ -62,7 +62,6 @@ def generate_with_retry(prompt):
                     logger.info("✅ 生成成功！")
                     return response
             except ResourceExhausted:
-                # 遇到 429 就原地等待 70 秒
                 logger.warning(f"⚠️ {model_name} 限流 (429)。等待 70 秒後重試...")
                 time.sleep(70)
                 continue 
@@ -73,7 +72,7 @@ def generate_with_retry(prompt):
 
 def main():
     logger.info("=================================")
-    logger.info("🔰 V48 STANDARD BOT STARTED 🔰")
+    logger.info("🔰 V50 DOWNLOAD FIXED BOT 🔰")
     logger.info("=================================")
     
     rss_url, target_keyword = get_dynamic_rss()
@@ -86,7 +85,7 @@ def main():
         prompt = f"""
         你是一位{BOT_PERSONA}。主題：{target_keyword}。新聞：{entry.title}。
         請直接輸出 HTML (不要 Markdown)。
-        結構：<h2>副標題</h2><p>內文</p><table>規格表</table><h2>結論</h2>
+        結構：<h2>副標題</h2><p>內文</p><table>規格表或比較表</table><h2>結論</h2>
         圖片插入 ((IMG: English Desc))
         """
         
@@ -101,12 +100,12 @@ def main():
             
             # CSS 注入
             html = html.replace("<p>", '<p style="margin-bottom:25px;line-height:2.0;font-size:18px;">')
-            html = html.replace("<h2>", '<h2 style="color:#0284c7;margin-top:40px;font-size:24px;border-bottom:2px solid #ddd;padding-bottom:10px;">')
+            html = html.replace("<h2>", '<h2 style="color:#15803d;margin-top:40px;font-size:24px;border-bottom:2px solid #bbf7d0;padding-bottom:10px;">')
             if "<table>" in html:
                 html = html.replace("<table>", '<div style="overflow-x:auto;"><table border="1" style="width:100%;border-collapse:collapse;margin:30px 0;border:2px solid #333;">')
                 html = html.replace("</table>", '</table></div>')
                 html = html.replace("td>", 'td style="padding:15px;border:1px solid #ccc;">')
-                html = html.replace("th>", 'th style="background:#f4f4f4;padding:15px;border:1px solid #333;">')
+                html = html.replace("th>", 'th style="background:#f0fdf4;padding:15px;border:1px solid #333;">')
 
             final = get_hero_image(target_keyword) + html + create_shopee_button(target_keyword)
             
