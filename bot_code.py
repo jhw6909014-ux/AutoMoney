@@ -9,11 +9,13 @@ import google.generativeai as genai
 from email.mime.text import MIMEText
 from email.header import Header
 
-# --- V29 CONFIG (Blogger Edition) ---
+# --- CONFIG ---
+# 為了避免變數抓不到，我們加強檢查
 SHOPEE_ID = "16332290023"
-BOT_PERSONA = "3C科技發燒友"
-KEYWORD_POOL = ["iPhone","Android","顯示卡","AI","筆電","藍芽耳機","Switch","PS5","智慧手錶","行動電源"]
+BOT_PERSONA = "專業3C科技發燒友"
+KEYWORD_POOL = ["筆電", "顯示卡", "iPhone", "AI PC"]
 
+# 設定 Log，讓它顯示更詳細
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -27,15 +29,7 @@ def get_dynamic_rss():
 def create_shopee_button(keyword):
     safe_keyword = urllib.parse.quote(keyword)
     url = f"https://shopee.tw/search?keyword={safe_keyword}&utm_source=affiliate&utm_campaign={SHOPEE_ID}"
-    return f"""
-    <div style="margin:40px 0;text-align:center;">
-        <p style="font-size:15px;color:#666;margin-bottom:10px;">👇 想找 {keyword} 相關優惠？ 👇</p>
-        <a href="{url}" target="_blank" rel="nofollow" 
-           style="background-color:#ea580c;color:white;padding:15px 30px;border-radius:50px;text-decoration:none;font-weight:bold;font-size:18px;box-shadow:0 4px 10px rgba(234,88,12,0.4);">
-           🔍 點此在蝦皮搜尋「{keyword}」
-        </a>
-    </div>
-    """
+    return f"""<br><a href="{url}">👉 點此在蝦皮搜尋「{keyword}」</a><br>"""
 
 def send_email_to_blogger(title, html_content):
     sender = os.environ.get("GMAIL_USER")
@@ -43,7 +37,9 @@ def send_email_to_blogger(title, html_content):
     recipient = os.environ.get("BLOGGER_EMAIL")
 
     if not sender or not password or not recipient:
-        logger.error("❌ 缺少 Email 設定 (GMAIL_USER, GMAIL_APP_PASSWORD, BLOGGER_EMAIL)")
+        logger.error("❌ 嚴重錯誤：Email 設定不完整！請檢查 Secrets。")
+        logger.error(f"GMAIL_USER: {sender}")
+        logger.error(f"BLOGGER_EMAIL: {recipient}")
         return False
 
     msg = MIMEText(html_content, 'html', 'utf-8')
@@ -56,66 +52,62 @@ def send_email_to_blogger(title, html_content):
         server.login(sender, password)
         server.send_message(msg)
         server.quit()
-        logger.info("✅ Email 發送成功！文章已發布到 Blogger。")
+        logger.info(f"✅ Email 發送成功！寄給：{recipient}")
         return True
     except Exception as e:
-        logger.error(f"❌ Email 發送失敗: {e}")
+        logger.error(f"❌ Email 發送失敗 (SMTP Error): {e}")
         return False
 
 def ai_writer(title, summary, keyword):
     api_key = os.environ.get("GOOGLE_API_KEY")
-    if not api_key: return None
+    if not api_key: 
+        logger.error("❌ 嚴重錯誤：找不到 GOOGLE_API_KEY")
+        return None
     
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel('gemini-1.5-flash')
     
-    prompt = f"""
-    你是一位【{BOT_PERSONA}】。
-    本次主題關鍵字是：【{keyword}】。
+    prompt = f"請將這則新聞改寫成部落格文章，並提到{keyword}。\n新聞標題：{title}\n新聞摘要：{summary}"
     
-    請將以下新聞改寫成一篇繁體中文部落格文章。
-    新聞標題: {title}
-    新聞摘要: {summary}
+    logger.info("🤖 正在呼叫 Google Gemini AI...")
     
-    【寫作指令】:
-    1. 標題：必須包含「{keyword}」，並且要是吸引人的農場標題。
-    2. 內容：請自然地將 {keyword} 融入文章中。
-    3. 表格：請製作一個 HTML 表格 (<table>)，列出關於 {keyword} 的相關規格比較、選購指南或優缺點分析。
-    4. 結尾：給出針對 {keyword} 的具體購買建議。
-    """
-    
-    for _ in range(3):
+    for attempt in range(3):
         try:
             res = model.generate_content(prompt)
             if res.text:
+                logger.info("✅ AI 生成成功！")
                 text = res.text.replace("```html", "").replace("```", "")
                 btn = create_shopee_button(keyword)
                 return text + btn
-        except:
+        except Exception as e:
+            # 這是關鍵！印出錯誤代碼！
+            logger.error(f"⚠️ AI 生成失敗 (第 {attempt+1} 次): {e}")
             time.sleep(2)
+            
+    logger.error("❌ AI 最終放棄治療，無法生成文章。")
     return None
 
 def main():
-    logger.info("V29 Blogger Bot Started...")
+    logger.info("V29 Debugger Started...")
     rss_url, target_keyword = get_dynamic_rss()
     feed = feedparser.parse(rss_url)
     
-    history = []
-    if os.path.exists("history.txt"):
-        with open("history.txt", "r") as f: history = f.read().splitlines()
-        
-    for entry in feed.entries[:1]:
-        if entry.link in history: continue
-        
-        logger.info(f"Processing: {entry.title}")
-        content = ai_writer(entry.title, getattr(entry, "summary", ""), target_keyword)
-        
-        if content:
-            # 發送到 Blogger
-            success = send_email_to_blogger(f"【{target_keyword}快訊】{entry.title}", content)
-            
-            if success:
-                with open("history.txt", "a") as f: f.write(f"{entry.link}\n")
+    if not feed.entries:
+        logger.warning("⚠️ 沒抓到新聞！可能是 RSS 網址有誤或 Google 擋 IP")
+        return
+
+    # 強制只跑第一篇
+    entry = feed.entries[0]
+    logger.info(f"Processing: {entry.title}")
+    
+    # 開始寫作
+    content = ai_writer(entry.title, getattr(entry, "summary", ""), target_keyword)
+    
+    if content:
+        # 寄信
+        send_email_to_blogger(f"【{target_keyword}快訊】{entry.title}", content)
+    else:
+        logger.error("❌ 因為 AI 沒產出內容，所以跳過發信步驟。")
 
 if __name__ == "__main__":
     main()
